@@ -4,7 +4,7 @@ pkgver=7.1.8
 pkgrel=0
 _tag=cachyos-7.1.8-1
 _krel=linux-evl-7.1
-makedepends="bash clang lld llvm flex bison bc perl python3 gawk findutils diffutils coreutils tar xz zstd cpio kmod elfutils-dev openssl openssl-dev pahole linux-headers qemu-system-x86_64"
+makedepends="bash clang-dev flex bison bc perl python3 gawk findutils diffutils coreutils tar xz zstd cpio kmod elfutils-dev openssl openssl-dev pahole linux-headers qemu-system-x86_64"
 source="https://github.com/CachyOS/linux/archive/refs/tags/$_tag.tar.gz
 0001-bore-cachy.patch
 0002-zainium-system-paths.patch
@@ -15,26 +15,43 @@ sha256sums="e181cae2157d3cf7bb3417422e7c7d9f561284c131c8bcc51a70cf6325b89be8  $_
 # CachyOS's 7.1 tree (its base patches already applied), BORE scheduler on top,
 # then Zainium's system paths (firmware, shebangs, init, modprobe, poweroff) and
 # release name. The release stays linux-evl-7.1 so the module dir and boot paths
-# do not change. Built with clang ThinLTO, -O3, x86-64-v3.
+# do not change. zainium.config is Zainium's own kernel config; build() only adds
+# the desktop-speed options to it. Built with GCC like that config: with Rust and
+# BTF both on, the kernel does not allow LTO.
 build() {
 	cd "$SRCDIR/linux-$_tag"
 	# the musl loader flags ci/build.sh exports are for userland, not the kernel
 	unset CFLAGS CPPFLAGS LDFLAGS
+
+	# Rust in the kernel: stable rustc with rust-src, and bindgen (rustup comes from the CI job)
+	rustup toolchain install stable --profile minimal --component rust-src
+	export RUSTUP_TOOLCHAIN=stable
+	cargo install --locked --root "$SRCDIR/bindgen" bindgen-cli
+	export PATH="$SRCDIR/bindgen/bin:$PATH"
 
 	for p in 0001-bore-cachy.patch 0002-zainium-system-paths.patch 0003-zainium-kernel-release.patch; do
 		patch -p1 < "$SRCDIR/$p"
 	done
 
 	cp "$SRCDIR/zainium.config" .config
-	make LLVM=1 olddefconfig
-	# a clang that cannot do these silently drops them in olddefconfig
-	for opt in CONFIG_CACHY=y CONFIG_SCHED_BORE=y CONFIG_LTO_CLANG_THIN=y CONFIG_X86_64_VERSION=3 \
-		CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3=y CONFIG_TRANSPARENT_HUGEPAGE=y; do
+	# desktop speed on top of Zainium's config: CachyOS tweaks and BORE keep their
+	# defaults; x86-64-v3, -O3, transparent hugepages, zstd for zram, no scheduler stats
+	scripts/config -e GENERIC_CPU --set-val X86_64_VERSION 3 \
+		-d CC_OPTIMIZE_FOR_PERFORMANCE -e CC_OPTIMIZE_FOR_PERFORMANCE_O3 \
+		-e TRANSPARENT_HUGEPAGE -e TRANSPARENT_HUGEPAGE_ALWAYS \
+		-d ZRAM_DEF_COMP_LZORLE -e ZRAM_DEF_COMP_ZSTD \
+		-d SCHEDSTATS -d LATENCYTOP \
+		-d DEBUG_INFO_COMPRESSED_NONE -e DEBUG_INFO_COMPRESSED_ZSTD
+	make olddefconfig
+	make rustavailable
+	# olddefconfig silently drops what the toolchain cannot do (Rust without rustc/bindgen)
+	for opt in CONFIG_RUST=y CONFIG_DEBUG_INFO_BTF=y CONFIG_CACHY=y CONFIG_SCHED_BORE=y \
+		CONFIG_X86_64_VERSION=3 CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3=y CONFIG_TRANSPARENT_HUGEPAGE=y; do
 		grep -qx "$opt" .config || { echo "olddefconfig dropped $opt" >&2; return 1; }
 	done
-	[ "$(make LLVM=1 -s kernelrelease)" = "$_krel" ] || { echo "kernelrelease is not $_krel" >&2; return 1; }
+	[ "$(make -s kernelrelease)" = "$_krel" ] || { echo "kernelrelease is not $_krel" >&2; return 1; }
 
-	make LLVM=1 -j"$(nproc)" bzImage modules
+	make -j"$(nproc)" bzImage modules
 	_boot_test
 }
 
@@ -84,7 +101,7 @@ package() {
 	# the boot menu's fallback entry boots the same image
 	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-panic"
 
-	make LLVM=1 INSTALL_MOD_PATH="$PAYLOAD_DIR" INSTALL_MOD_STRIP=1 DEPMOD=true modules_install
+	make INSTALL_MOD_PATH="$PAYLOAD_DIR" INSTALL_MOD_STRIP=1 DEPMOD=true modules_install
 	mods="$PAYLOAD_DIR/overlayer/syshub/drivers/modules/$_krel"
 	rm -f "$mods/build" "$mods/source"
 
