@@ -20,8 +20,9 @@ sha256sums="e181cae2157d3cf7bb3417422e7c7d9f561284c131c8bcc51a70cf6325b89be8  $_
 # BTF both on, the kernel does not allow LTO.
 build() {
 	cd "$SRCDIR/linux-$_tag"
-	# the musl loader flags ci/build.sh exports are for userland, not the kernel
-	unset CFLAGS CPPFLAGS LDFLAGS
+	# the musl loader flags ci/build.sh exports are for userland, not the kernel; with the Rust
+	# one bindgen would run on Zainium's loader and could not dlopen Alpine's libclang
+	unset CFLAGS CPPFLAGS LDFLAGS CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS
 
 	# Rust in the kernel: stable rustc with rust-src, and bindgen (rustup comes from the CI job)
 	rustup toolchain install stable --profile minimal --component rust-src
