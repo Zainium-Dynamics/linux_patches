@@ -49,6 +49,11 @@ build() {
 		CONFIG_X86_64_VERSION=3 CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3=y CONFIG_TRANSPARENT_HUGEPAGE=y; do
 		grep -qx "$opt" .config || { echo "olddefconfig dropped $opt" >&2; return 1; }
 	done
+	# the live image is zstd EROFS mounted from the initramfs: every built-in EROFS
+	# option of Zainium's config must stay built in (ONDEMAND no longer exists in 7.1.8)
+	for opt in $(grep '^CONFIG_EROFS_FS[A-Z_]*=y$' "$SRCDIR/zainium.config" | grep -v '^CONFIG_EROFS_FS_ONDEMAND='); do
+		grep -qx "$opt" .config || { echo "olddefconfig dropped $opt" >&2; return 1; }
+	done
 	[ "$(make -s kernelrelease)" = "$_krel" ] || { echo "kernelrelease is not $_krel" >&2; return 1; }
 
 	make -j"$(nproc)" bzImage modules
