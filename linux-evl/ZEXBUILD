@@ -21,13 +21,14 @@ sha256sums="e181cae2157d3cf7bb3417422e7c7d9f561284c131c8bcc51a70cf6325b89be8  $_
 build() {
 	cd "$SRCDIR/linux-$_tag"
 	# the musl loader flags ci/build.sh exports are for userland, not the kernel; with the Rust
-	# one bindgen would run on Zainium's loader and could not dlopen Alpine's libclang
+	# one bindgen would run on Zainium's loader and could not find libstdc++ for Alpine's libclang;
+	# it also has to be linked dynamically, a static musl bindgen cannot dlopen libclang
 	unset CFLAGS CPPFLAGS LDFLAGS CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS
 
 	# Rust in the kernel: stable rustc with rust-src, and bindgen (rustup comes from the CI job)
 	rustup toolchain install stable --profile minimal --component rust-src
 	export RUSTUP_TOOLCHAIN=stable
-	cargo install --locked --root "$SRCDIR/bindgen" bindgen-cli
+	RUSTFLAGS="-C target-feature=-crt-static" cargo install --locked --root "$SRCDIR/bindgen" bindgen-cli
 	export PATH="$SRCDIR/bindgen/bin:$PATH"
 
 	for p in 0001-bore-cachy.patch 0002-zainium-system-paths.patch 0003-zainium-kernel-release.patch; do
