@@ -3,7 +3,7 @@
 [package]
 name             = "linux-evl"
 version          = "7.1.8"
-description      = "Zainium kernel: CachyOS 7.1 with the BORE scheduler (x86-64-v3, clang ThinLTO, -O3) and Zainium's system paths, with its modules"
+description      = "Linux kernel"
 license          = "GPL-2.0-only"
 maintainer       = "Zainium Dynamics <alizain@zainiumdynamics.tech>"
 homepage         = "https://zainiumdynamics.tech"
