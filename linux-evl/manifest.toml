@@ -1,0 +1,31 @@
+# manifest.toml — linux-evl (syshub tier): the kernel image and its modules
+
+[package]
+name             = "linux-evl"
+version          = "7.1.8"
+description      = "Zainium kernel: CachyOS 7.1 with the BORE scheduler (x86-64-v3, clang ThinLTO, -O3) and Zainium's system paths, with its modules"
+license          = "GPL-2.0-only"
+maintainer       = "Zainium Dynamics <alizain@zainiumdynamics.tech>"
+homepage         = "https://zainiumdynamics.tech"
+build_type       = "dynamic"
+libc_target      = "musl"
+
+blake3           = ""
+ed25519_sig      = ""
+ed25519_pubkey   = ""
+
+depends          = []
+provides         = ["linux-evl"]
+tags             = ["base", "kernel", "modules"]
+
+[install]
+kernel  = "/overlayer/syshub/kernel"
+drivers = "/overlayer/syshub/drivers"
+_syshub = true
+
+[remove]
+files    = []
+dirs     = []
+symlinks = []
+
+[hooks]
