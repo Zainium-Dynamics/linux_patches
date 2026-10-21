@@ -1,0 +1,254 @@
+# linux_patches — GitHub Actions CI/CD
+#
+# Same pipeline as cosmic-zainium: only builds recipe directories that
+# changed (ci/changed-packages.sh), inside an Alpine container, with
+# ci/build.sh turning each recipe into a .zex. The kernel's own build deps
+# (clang, lld, pahole, qemu for the boot test, ...) come from its recipe's
+# makedepends=, not from here. `libc6-compat` goes in first: GitHub's
+# runner injects a glibc-built Node binary into every container job to
+# run JS actions, which fails on bare Alpine without it.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+jobs:
+  # PR validation: a stale run is worthless once new commits land on the
+  # same PR, so cancel it outright and start the fresh one immediately.
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # Google mirror of the Docker Hub image: anonymous pulls from shared runners hit the Docker Hub and ECR limits
+    container: mirror.gcr.io/library/alpine:latest
+    concurrency:
+      group: check-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Container prerequisites (glibc shim for actions' Node runtime)
+        run: |
+          apk add --no-cache libc6-compat git bash
+          # actions/checkout sets safe.directory under a *temporary* HOME
+          # that only exists during its own (Node) process — every later
+          # `run:` step uses the container's real HOME, where that trust
+          # entry never landed, so plain `git` calls in later steps
+          # (ci/changed-packages.sh, ci/build.sh) fail with "detected
+          # dubious ownership". Trust it globally, permanently, up front —
+          # this container is single-use/thrown away per job anyway.
+          git config --global --add safe.directory '*'
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build deps
+        run: |
+          apk add --no-cache build-base linux-headers curl
+
+      # Every ZEXBUILD here builds with `--target x86_64-unknown-linux-musl`
+      # explicitly (see ci/build.sh's own comments on why). Alpine's own
+      # `apk add rust cargo` does NOT ship that as an installable rustup
+      # target -- it's just the host toolchain, so `cargo build --target
+      # x86_64-unknown-linux-musl` fails with E0463 "can't find crate for
+      # core" (no std/core artifacts for that target at all). Real rustup
+      # + `rustup target add` is the actual fix, not a workaround --
+      # permanent, every job, both here and in release below.
+      - name: Install rustup + x86_64-unknown-linux-musl target
+        run: |
+          # nightly, not stable: elevate-pam/elevate-crypto (cosmic-greeter's
+          # PAM dependency) declare rust-version = 1.96, ahead of current
+          # stable (1.93.x as of writing) -- nightly is the only channel
+          # guaranteed to satisfy every crate's MSRV here.
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+            --default-toolchain nightly --target x86_64-unknown-linux-musl --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" target add x86_64-unknown-linux-musl
+
+      - name: Cache cargo (registry + installed binaries)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            ~/.rustup
+          key: cargo-check-${{ runner.os }}-v1
+
+      # substrate is published on crates.io (substrate-zainium, binary
+      # name substrate) — install straight from there.
+      - name: Install substrate
+        run: cargo install substrate-zainium --locked
+
+      - name: Build changed packages
+        env:
+          # github.event.pull_request.base.sha is a snapshot from when
+          # the PR was opened -- it does NOT advance on later pushes to
+          # base (master), so once other PRs merge, every open PR's
+          # check job starts diffing against a stale base and rebuilds
+          # everything merged since, not just its own package. The base
+          # branch NAME resolves to its live tip commit instead (we
+          # have full history via fetch-depth: 0), so this stays
+          # correct across the PR's whole lifetime. Prefixed with
+          # origin/ -- actions/checkout doesn't create a local branch
+          # ref for the base branch on a PR checkout, only the
+          # origin/<branch> remote-tracking ref, so a bare branch name
+          # here fails `git rev-parse` ("Needed a single revision").
+          BASE_SHA: origin/${{ github.event.pull_request.base.ref }}
+        run: |
+          pkgs_out="$(mktemp)"
+          if ! sh ci/changed-packages.sh > "$pkgs_out"; then
+            echo "changed-packages.sh failed:"
+            cat "$pkgs_out"
+            exit 1
+          fi
+          failed=""
+          for pkg in $(cat "$pkgs_out"); do
+            echo "=== check build: $pkg ==="
+            sh ci/build.sh "$pkg" || failed="$failed $pkg"
+          done
+          if [ -n "$failed" ]; then
+            echo "FAILED:$failed"
+            exit 1
+          fi
+
+      # check builds never publish (no PUBLISH=1 here) — this is the
+      # only way to get the actual .zex out of a PR build for local
+      # inspection (`substrate inspect`/`unpack`) before deciding to
+      # merge. ci/build.sh leaves finished .zex files at the repo root.
+      - name: Upload built .zex(es)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-zex
+          path: "*.zex"
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload staging on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zexbuild-staging
+          path: .zexbuild-staging/
+          retention-days: 1
+          include-hidden-files: true
+
+  # The release job never publishes to Zainium's live
+  # package server (no PUBLISH=1, no zex-ports, no R2 secrets) — it
+  # builds every changed package, packs each into a .zex, and attaches
+  # them to a GitHub Release instead. Download from the release, drop
+  # into the OS root, build the ISO.
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    # Google mirror of the Docker Hub image: anonymous pulls from shared runners hit the Docker Hub and ECR limits
+    container: mirror.gcr.io/library/alpine:latest
+    permissions:
+      contents: write
+    # One group per commit SHA: every push to master gets its own
+    # release run, and they all run in parallel. A single shared group
+    # (release-master) only ever keeps ONE pending run -- when several
+    # merges land while one is building, GitHub cancels all the older
+    # pending ones and only the newest survives, so those packages never
+    # got built. Each push's diff is against its own github.event.before,
+    # so runs don't overlap in what they build. Never cancel in progress.
+    concurrency:
+      group: release-${{ github.sha }}
+      cancel-in-progress: false
+    steps:
+      - name: Container prerequisites (glibc shim for actions' Node runtime)
+        run: |
+          apk add --no-cache libc6-compat git bash
+          git config --global --add safe.directory '*'
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build deps
+        run: |
+          apk add --no-cache build-base linux-headers curl
+
+      # See the same step in the check job for why this is needed --
+      # permanent fix for E0463, not a one-off.
+      - name: Install rustup + x86_64-unknown-linux-musl target
+        run: |
+          # nightly, not stable: elevate-pam/elevate-crypto (cosmic-greeter's
+          # PAM dependency) declare rust-version = 1.96, ahead of current
+          # stable (1.93.x as of writing) -- nightly is the only channel
+          # guaranteed to satisfy every crate's MSRV here.
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+            --default-toolchain nightly --target x86_64-unknown-linux-musl --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" target add x86_64-unknown-linux-musl
+
+      - name: Cache cargo (registry + installed binaries)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            ~/.rustup
+          key: cargo-release-${{ runner.os }}-v1
+
+      - name: Install substrate
+        run: cargo install substrate-zainium --locked
+
+      - name: Build changed packages
+        env:
+          # github.event.before is the SHA the branch was at right before
+          # this push — covers every commit in the push, not just the
+          # last one. Without this, changed-packages.sh's HEAD~1 fallback
+          # only ever sees the final commit's diff, so pushing several
+          # commits at once (or the very first push of a repo's full
+          # history, where `before` is the all-zero SHA and this env var
+          # ends up empty, falling through to changed-packages.sh's own
+          # HEAD~1 default) silently drops everything else.
+          BASE_SHA: ${{ github.event.before }}
+        run: |
+          pkgs_out="$(mktemp)"
+          if ! sh ci/changed-packages.sh > "$pkgs_out"; then
+            echo "changed-packages.sh failed:"
+            cat "$pkgs_out"
+            exit 1
+          fi
+          failed=""
+          first=1
+          for pkg in $(cat "$pkgs_out"); do
+            if [ "$first" -eq 0 ]; then
+              echo "-- waiting 60s before the next package --"
+              sleep 60
+            fi
+            first=0
+            echo "=== release build: $pkg ==="
+            sh ci/build.sh "$pkg" || failed="$failed $pkg"
+          done
+          if [ -n "$failed" ]; then
+            echo "FAILED:$failed"
+            exit 1
+          fi
+
+      - name: Upload staging on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zexbuild-staging
+          path: .zexbuild-staging/
+          retention-days: 1
+          include-hidden-files: true
+
+      # .zex files sit at the repo root once ci/build.sh finishes. Tag
+      # each release by commit SHA so re-running this workflow on a new
+      # push never collides with a prior release tag.
+      - name: Create GitHub Release with built .zex files
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.sha }}
+          name: build-${{ github.sha }}
+          files: "*.zex"
+          fail_on_unmatched_files: false
