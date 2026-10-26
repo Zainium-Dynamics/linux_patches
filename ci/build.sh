@@ -57,10 +57,37 @@ mkdir -p "$SRCDIR"
 : "${pkgver:?ZEXBUILD did not set pkgver}"
 : "${pkgrel:=0}"
 
-echo "== $pkgname $pkgver-$pkgrel =="
 # a recipe rebuild (pkgrel bump) is a new package version, so zex sees it as an upgrade
 version="$pkgver"
 [ "$pkgrel" != 0 ] && version="$pkgver-r$pkgrel"
+
+echo "== $pkgname $version =="
+
+# zex only upgrades installed systems to a version newer than theirs, so every
+# package built here must carry a version that is really new: ZEXBUILD's pkgver,
+# matching each manifest, and not already in its tier's ledger in the archive.
+published_version() { # <manifest.toml> <package name>
+    case "$(sed -nE 's/^_(kernel|syshub) *= *true.*/\1/p' "$1" | head -n 1)" in
+        kernel) ledger=kernel/x86_64/kernel.toml ;;
+        syshub) ledger=core/syshub/x86_64/syshub.toml ;;
+        *) ledger=userland/x86_64/zex_ledger-x86_64.toml ;;
+    esac
+    wget -qO- "https://archive.zainiumdynamics.tech/$ledger" 2>/dev/null \
+        | sed -n "/^\[packages.$2\]\$/,/^\$/p" | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -n 1 || true
+}
+for check in "$pkgname" ${subpackages:-}; do
+    m="$RECIPE_DIR/manifest.toml"
+    [ "$check" = "$pkgname" ] || m="$RECIPE_DIR/$check.manifest.toml"
+    manifest_version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$m" | head -n 1)"
+    if [ -n "$manifest_version" ] && [ "$manifest_version" != "$pkgver" ]; then
+        echo "$check: $(basename "$m") version $manifest_version != ZEXBUILD pkgver $pkgver -- set both" >&2
+        exit 1
+    fi
+    if [ "$(published_version "$m" "$check")" = "$version" ]; then
+        echo "$check $version is already published -- bump pkgrel (or pkgver) so installed systems upgrade to this build" >&2
+        exit 1
+    fi
+done
 
 # Alpine-style: each recipe declares its own extra apk deps instead of
 # CI growing a global list.
