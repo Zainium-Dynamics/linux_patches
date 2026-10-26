@@ -1,4 +1,5 @@
-# manifest.toml — linux-evl (syshub tier): the kernel image and its modules
+# manifest.toml — linux-evl (kernel tier): the kernel image, booted from the ESP.
+# Its modules are the syshub package linux-evl-modules.
 
 [package]
 name             = "linux-evl"
@@ -16,12 +17,12 @@ ed25519_pubkey   = ""
 
 depends          = []
 provides         = ["linux-evl"]
-tags             = ["base", "kernel", "modules"]
+tags             = ["base", "kernel"]
+modules          = "linux-evl-modules"
 
 [install]
-kernel  = "/overlayer/syshub/kernel"
-drivers = "/overlayer/syshub/drivers"
-_syshub = true
+kernel  = "/overlayer/zaisys/kernel"
+_kernel = true
 
 [remove]
 files    = []

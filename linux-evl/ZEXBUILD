@@ -3,6 +3,8 @@ pkgname=linux-evl
 pkgver=7.1.8
 pkgrel=0
 _krel=linux-evl-7.1
+# the kernel goes to the kernel tier (ESP, `zex kernel`); its modules to the base
+subpackages="linux-evl-modules"
 makedepends="bash clang-dev flex bison bc perl python3 gawk findutils diffutils coreutils tar xz zstd cpio kmod elfutils-dev openssl openssl-dev pahole linux-headers qemu-system-x86_64"
 source="https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$pkgver.tar.xz
 0001-zainium-system-paths.patch
@@ -39,8 +41,7 @@ build() {
 		-e TRANSPARENT_HUGEPAGE -e TRANSPARENT_HUGEPAGE_ALWAYS \
 		-d ZRAM_DEF_COMP_LZORLE -e ZRAM_DEF_COMP_ZSTD \
 		-d SCHEDSTATS -d LATENCYTOP \
-		-d DEBUG_INFO_COMPRESSED_NONE -e DEBUG_INFO_COMPRESSED_ZSTD \
-		-e DEBUG_INFO_REDUCED
+		-d DEBUG_INFO_COMPRESSED_NONE -e DEBUG_INFO_COMPRESSED_ZSTD
 	make olddefconfig
 	make rustavailable
 	# olddefconfig silently drops what the toolchain cannot do (Rust without rustc/bindgen)
@@ -98,13 +99,16 @@ EOF
 	grep "ZAINIUM_BOOT_OK" "$t/boot.log"
 }
 
+# the kernel image only: `zex kernel` puts it on the ESP, where Limine boots it
 package() {
 	cd "$SRCDIR/linux-$pkgver"
 	mkdir -p "$PAYLOAD_DIR/kernel"
 	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-evl"
-	# the boot menu's fallback entry boots the same image
-	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-panic"
+}
 
+# the modules for the base (drivers/modules/<release>), staged by `zex kernel` after asking
+modules() {
+	cd "$SRCDIR/linux-$pkgver"
 	make INSTALL_MOD_PATH="$PAYLOAD_DIR" INSTALL_MOD_STRIP=1 DEPMOD=true modules_install
 	mods="$PAYLOAD_DIR/overlayer/syshub/drivers/modules/$_krel"
 	rm -f "$mods/build" "$mods/source"
