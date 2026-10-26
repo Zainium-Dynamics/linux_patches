@@ -136,11 +136,11 @@ jobs:
           retention-days: 1
           include-hidden-files: true
 
-  # The release job never publishes to Zainium's live
-  # package server (no PUBLISH=1, no zex-ports, no R2 secrets) — it
-  # builds every changed package, packs each into a .zex, and attaches
-  # them to a GitHub Release instead. Download from the release, drop
-  # into the OS root, build the ISO.
+  # The release job builds every changed package, packs each into a .zex
+  # and attaches them to a GitHub Release. Once the R2 secrets are set on
+  # this repo it also publishes them with zex-ports: linux-evl to the
+  # kernel tier (kernel/x86_64, read by `zex kernel`), linux-evl-modules
+  # to syshub.
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
@@ -158,6 +158,12 @@ jobs:
     concurrency:
       group: release-${{ github.sha }}
       cancel-in-progress: false
+    env:
+      PUBLISH: ${{ secrets.R2_BUCKET != '' && '1' || '' }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
     steps:
       - name: Container prerequisites (glibc shim for actions' Node runtime)
         run: |
@@ -197,6 +203,15 @@ jobs:
 
       - name: Install substrate
         run: cargo install substrate-zainium --locked
+
+      # zex-ports isn't on crates.io: built from source, only when publishing
+      - name: Install zex-ports
+        if: env.PUBLISH == '1'
+        run: |
+          rm -rf /tmp/zex-ports-src
+          git clone --depth 1 https://gitlab.com/alizain.arch/zex-port.git /tmp/zex-ports-src
+          (cd /tmp/zex-ports-src && cargo build --release)
+          cp /tmp/zex-ports-src/target/release/zex-ports /usr/local/bin/zex-ports
 
       - name: Build changed packages
         env:

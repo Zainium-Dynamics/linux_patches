@@ -1,0 +1,123 @@
+maintainer="Zainium Dynamics <alizain@zainiumdynamics.tech>"
+pkgname=linux-evl
+pkgver=7.1.8
+pkgrel=0
+_krel=linux-evl-7.1
+# the kernel goes to the kernel tier (ESP, `zex kernel`); its modules to the base
+subpackages="linux-evl-modules"
+makedepends="bash clang-dev flex bison bc perl python3 gawk findutils diffutils coreutils tar xz zstd cpio kmod elfutils-dev openssl openssl-dev pahole linux-headers qemu-system-x86_64"
+source="https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$pkgver.tar.xz
+0001-zainium-system-paths.patch
+0002-zainium-kernel-release.patch
+zainium.config"
+sha256sums="ff01dcb449279d5b4cfccdb01fee639cf5ff1803f1749a77844dd33915422c49  linux-$pkgver.tar.xz"
+
+# Vanilla 7.1 with Zainium's system paths (firmware, shebangs, init, modprobe,
+# poweroff) and release name. The release stays linux-evl-7.1 so the module dir and boot paths
+# do not change. zainium.config is Zainium's own kernel config; build() only adds
+# the desktop-speed options to it. Built with GCC like that config: with Rust and
+# BTF both on, the kernel does not allow LTO.
+build() {
+	cd "$SRCDIR/linux-$pkgver"
+	# the musl loader flags ci/build.sh exports are for userland, not the kernel; with the Rust
+	# one bindgen would run on Zainium's loader and could not find libstdc++ for Alpine's libclang;
+	# it also has to be linked dynamically, a static musl bindgen cannot dlopen libclang
+	unset CFLAGS CPPFLAGS LDFLAGS CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS
+
+	# Rust in the kernel: stable rustc with rust-src, and bindgen (rustup comes from the CI job)
+	rustup toolchain install stable --profile minimal --component rust-src
+	export RUSTUP_TOOLCHAIN=stable
+	RUSTFLAGS="-C target-feature=-crt-static" cargo install --locked --root "$SRCDIR/bindgen" bindgen-cli
+	export PATH="$SRCDIR/bindgen/bin:$PATH"
+
+	for p in 0001-zainium-system-paths.patch 0002-zainium-kernel-release.patch; do
+		patch -p1 < "$SRCDIR/$p"
+	done
+
+	cp "$SRCDIR/zainium.config" .config
+	# desktop speed on top of Zainium's config: x86-64-v3, -O3, transparent hugepages, zstd for zram, no scheduler stats
+	scripts/config -e GENERIC_CPU --set-val X86_64_VERSION 3 \
+		-d CC_OPTIMIZE_FOR_PERFORMANCE -e CC_OPTIMIZE_FOR_PERFORMANCE_O3 \
+		-e TRANSPARENT_HUGEPAGE -e TRANSPARENT_HUGEPAGE_ALWAYS \
+		-d ZRAM_DEF_COMP_LZORLE -e ZRAM_DEF_COMP_ZSTD \
+		-d SCHEDSTATS -d LATENCYTOP \
+		-d DEBUG_INFO_COMPRESSED_NONE -e DEBUG_INFO_COMPRESSED_ZSTD
+	make olddefconfig
+	make rustavailable
+	# olddefconfig silently drops what the toolchain cannot do (Rust without rustc/bindgen)
+	for opt in CONFIG_RUST=y CONFIG_DEBUG_INFO_BTF=y \
+		CONFIG_X86_64_VERSION=3 CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3=y CONFIG_TRANSPARENT_HUGEPAGE=y; do
+		grep -qx "$opt" .config || { echo "olddefconfig dropped $opt" >&2; return 1; }
+	done
+	# the live image is zstd EROFS mounted from the initramfs: every built-in EROFS
+	# option of Zainium's config must stay built in (ONDEMAND no longer exists in 7.1.8)
+	for opt in $(grep '^CONFIG_EROFS_FS[A-Z_]*=y$' "$SRCDIR/zainium.config" | grep -v '^CONFIG_EROFS_FS_ONDEMAND='); do
+		grep -qx "$opt" .config || { echo "olddefconfig dropped $opt" >&2; return 1; }
+	done
+	[ "$(make -s kernelrelease)" = "$_krel" ] || { echo "kernelrelease is not $_krel" >&2; return 1; }
+
+	make -j"$(nproc)" bzImage modules
+	_boot_test
+}
+
+# The kernel has to boot on an x86-64-v3 CPU and start the initramfs init from
+# Zainium's path (/quantra-ramfs) on its own; the test init prints a marker and powers off.
+_boot_test() {
+	t="$SRCDIR/boot-test"
+	rm -rf "$t"
+	mkdir -p "$t"
+	cat > "$t/init.c" <<'EOF'
+#include <stdio.h>
+#include <sys/reboot.h>
+#include <sys/utsname.h>
+#include <unistd.h>
+
+int main(void)
+{
+	struct utsname u;
+
+	uname(&u);
+	printf("ZAINIUM_BOOT_OK %s\n", u.release);
+	fflush(stdout);
+	sync();
+	reboot(RB_POWER_OFF);
+	return 0;
+}
+EOF
+	cc -static -O2 -o "$t/init" "$t/init.c"
+	printf 'dir /dev 0755 0 0\nnod /dev/console 0600 0 0 c 5 1\nfile /quantra-ramfs %s 0755 0 0\n' "$t/init" > "$t/list"
+	usr/gen_init_cpio "$t/list" | gzip -9 > "$t/initrd.gz"
+
+	timeout 900 qemu-system-x86_64 -m 1024 -smp 2 -cpu max -nographic -no-reboot \
+		-kernel arch/x86/boot/bzImage -initrd "$t/initrd.gz" \
+		-append "console=ttyS0 panic=-1" > "$t/boot.log" 2>&1 || true
+	if ! grep -q "ZAINIUM_BOOT_OK $_krel" "$t/boot.log"; then
+		tail -60 "$t/boot.log"
+		echo "boot test failed: no ZAINIUM_BOOT_OK $_krel" >&2
+		return 1
+	fi
+	grep "ZAINIUM_BOOT_OK" "$t/boot.log"
+}
+
+# the kernel image only: `zex kernel` puts it on the ESP, where Limine boots it
+package() {
+	cd "$SRCDIR/linux-$pkgver"
+	mkdir -p "$PAYLOAD_DIR/kernel"
+	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-evl"
+}
+
+# the modules for the base (drivers/modules/<release>), staged by `zex kernel` after asking
+modules() {
+	cd "$SRCDIR/linux-$pkgver"
+	make INSTALL_MOD_PATH="$PAYLOAD_DIR" INSTALL_MOD_STRIP=1 DEPMOD=true modules_install
+	mods="$PAYLOAD_DIR/overlayer/syshub/drivers/modules/$_krel"
+	rm -f "$mods/build" "$mods/source"
+
+	# modules.dep and friends; depmod only takes a numeric release under lib/modules
+	scratch=$(mktemp -d)
+	mkdir -p "$scratch/lib/modules"
+	ln -s "$mods" "$scratch/lib/modules/0.0-$_krel"
+	depmod -a -b "$scratch" -F System.map "0.0-$_krel"
+	rm -rf "$scratch"
+	[ -s "$mods/modules.dep" ] || { echo "depmod wrote no modules.dep" >&2; return 1; }
+}

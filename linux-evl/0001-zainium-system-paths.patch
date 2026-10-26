@@ -1,0 +1,181 @@
+diff --git a/drivers/base/firmware_loader/main.c b/drivers/base/firmware_loader/main.c
+index a11b30dda..6ae36106a 100644
+--- a/drivers/base/firmware_loader/main.c
++++ b/drivers/base/firmware_loader/main.c
+@@ -471,10 +471,10 @@ static int fw_decompress_xz(struct device *dev, struct fw_priv *fw_priv,
+ static char fw_path_para[256];
+ static const char * const fw_path[] = {
+ 	fw_path_para,
+-	"/lib/firmware/updates/" UTS_RELEASE,
+-	"/lib/firmware/updates",
+-	"/lib/firmware/" UTS_RELEASE,
+-	"/lib/firmware"
++	"/overlayer/syshub/drivers/hardware/firmwares/updates/" UTS_RELEASE,
++	"/overlayer/syshub/drivers/hardware/firmwares/updates",
++	"/overlayer/syshub/drivers/hardware/firmwares/" UTS_RELEASE,
++	"/overlayer/syshub/drivers/hardware/firmwares"
+ };
+ 
+ /*
+diff --git a/fs/binfmt_script.c b/fs/binfmt_script.c
+index 637daf6e4..95fce16b8 100644
+--- a/fs/binfmt_script.c
++++ b/fs/binfmt_script.c
+@@ -14,6 +14,7 @@
+ #include <linux/file.h>
+ #include <linux/err.h>
+ #include <linux/fs.h>
++#include <linux/namei.h>
+ 
+ static inline bool spacetab(char c) { return c == ' ' || c == '\t'; }
+ static inline const char *next_non_spacetab(const char *first, const char *last)
+@@ -118,9 +119,53 @@ static int load_script(struct linux_binprm *bprm)
+ 			return retval;
+ 		bprm->argc++;
+ 	}
+-	retval = copy_string_kernel(i_name, bprm);
+-	if (retval)
+-		return retval;
++	/* --- ZAINIUM OS: redirect legacy FHS interpreter paths ------------
++	 * Zainium has no /bin, /usr/bin, etc. at all — every interpreter a
++	 * shebang can legally name lives under /overlayer/syshub/bin/
++	 * instead. Rewriting only three exact paths (sh/bash/env) misses
++	 * everything else a real shebang commonly names (perl, python3,
++	 * dash, awk, gawk, sed, make, ...) — this matches on the FHS
++	 * *prefix* instead and keeps whatever interpreter name follows it,
++	 * so all of those are covered by the same rule.
++	 *
++	 * `redirected` is a plain stack (automatic) buffer, not `static` —
++	 * load_script() runs concurrently for every exec() on the system,
++	 * a shared static buffer here would let two processes racing on
++	 * this function corrupt each other's interpreter path.
++	 *
++	 * Only when the named interpreter does not exist: inside a flatpak
++	 * sandbox or container /usr/bin/sh is real and /overlayer is absent.
++	 */
++	{
++		static const char *const legacy_roots[] = {
++			"/usr/local/bin/", "/usr/local/sbin/",
++			"/usr/bin/", "/usr/sbin/",
++			"/bin/", "/sbin/",
++		};
++		char redirected[BINPRM_BUF_SIZE];
++		size_t i;
++		struct path found;
++		bool exists = !kern_path(i_name, LOOKUP_FOLLOW, &found);
++
++		if (exists)
++			path_put(&found);
++		for (i = 0; !exists && i < ARRAY_SIZE(legacy_roots); i++) {
++			size_t root_len = strlen(legacy_roots[i]);
++
++			if (!strncmp(i_name, legacy_roots[i], root_len)) {
++				scnprintf(redirected, sizeof(redirected),
++					  "/overlayer/syshub/bin/%s",
++					  i_name + root_len);
++				i_name = redirected;
++				break;
++			}
++		}
++
++		retval = copy_string_kernel(i_name, bprm);
++		if (retval)
++			return retval;
++	}
++	/* --- ZAINIUM OS PATCH END ----------------------------------------- */
+ 	bprm->argc++;
+ 	retval = bprm_change_interp(i_name, bprm);
+ 	if (retval < 0)
+diff --git a/init/main.c b/init/main.c
+index 05f656823..09134550b 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -165,7 +165,7 @@ static size_t initargs_offs;
+ #endif
+ 
+ static char *execute_command;
+-static char *ramdisk_execute_command = "/init";
++static char *ramdisk_execute_command = "/quantra-ramfs";
+ static bool __initdata ramdisk_execute_command_set;
+ 
+ /*
+@@ -195,8 +195,11 @@ static int __init set_reset_devices(char *str)
+ 
+ __setup("reset_devices", set_reset_devices);
+ 
+-static const char *argv_init[MAX_INIT_ARGS+2] = { "init", NULL, };
+-const char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/", "TERM=linux", NULL, };
++static const char *argv_init[MAX_INIT_ARGS+2] = { "quantra-ramfs", NULL, };
++const char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/",
++"TERM=linux",
++"PATH=/overlayer/syshub/bin:/overlayer/syshub/sbin",
++NULL, };
+ static const char *panic_later, *panic_param;
+ 
+ static bool __init obsolete_checksetup(char *line)
+@@ -1650,10 +1653,10 @@ static int __ref kernel_init(void *unused)
+ 			return 0;
+ 	}
+ 
+-	if (!try_to_run_init_process("/sbin/init") ||
+-	    !try_to_run_init_process("/etc/init") ||
+-	    !try_to_run_init_process("/bin/init") ||
+-	    !try_to_run_init_process("/bin/sh"))
++	if (!try_to_run_init_process("/overlayer/syshub/lib/systemd/systemd") ||
++	    !try_to_run_init_process("/overlayer/syshub/bin/bash") ||
++	    !try_to_run_init_process("/overlayer/syshub/bin/dash") ||
++	    !try_to_run_init_process("/overlayer/syshub/bin/sh"))
+ 		return 0;
+ 
+ 	panic("No working init found.  Try passing init= option to kernel. "
+diff --git a/kernel/module/kmod.c b/kernel/module/kmod.c
+index a25dccdf7..ec1c65ec8 100644
+--- a/kernel/module/kmod.c
++++ b/kernel/module/kmod.c
+@@ -75,7 +75,7 @@ static int call_modprobe(char *orig_module_name, int wait)
+ 	static char *envp[] = {
+ 		"HOME=/",
+ 		"TERM=linux",
+-		"PATH=/sbin:/usr/sbin:/bin:/usr/bin",
++		"PATH=/overlayer/syshub/sbin:/overlayer/syshub/bin",
+ 		NULL
+ 	};
+ 	char *module_name;
+diff --git a/kernel/reboot.c b/kernel/reboot.c
+index 695c33e75..31b6d4105 100644
+--- a/kernel/reboot.c
++++ b/kernel/reboot.c
+@@ -836,8 +836,8 @@ void ctrl_alt_del(void)
+ }
+ 
+ #define POWEROFF_CMD_PATH_LEN  256
+-static char poweroff_cmd[POWEROFF_CMD_PATH_LEN] = "/sbin/poweroff";
+-static const char reboot_cmd[] = "/sbin/reboot";
++static char poweroff_cmd[POWEROFF_CMD_PATH_LEN] = "/overlayer/syshub/bin/poweroff";
++static const char reboot_cmd[] = "/overlayer/syshub/bin/reboot";
+ 
+ static int run_cmd(const char *cmd)
+ {
+diff --git a/scripts/depmod.sh b/scripts/depmod.sh
+index 3c34fecac..d2fa0ac4e 100755
+--- a/scripts/depmod.sh
++++ b/scripts/depmod.sh
+@@ -25,8 +25,13 @@ if [ -z $(command -v $DEPMOD) ]; then
+ 	exit 0
+ fi
+ 
+-set -- -ae -F "${objtree}/System.map"
+-if test -n "$INSTALL_MOD_PATH"; then
+-	set -- "$@" -b "$INSTALL_MOD_PATH"
+-fi
+-exec "$DEPMOD" "$@" "$KERNELRELEASE"
++# Zainium: modules live under /overlayer/syshub/drivers/modules (MODLIB), and
++# depmod rejects a non-numeric release like linux-evl-7.1 on its command
++# line, so run it on a numeric alias of the module dir in a scratch root.
++moddir=/overlayer/syshub/drivers/modules
++alias="0.0-${KERNELRELEASE}"
++scratch=$(mktemp -d)
++trap 'rm -rf "$scratch"' EXIT
++mkdir -p "$scratch$moddir"
++ln -s "${INSTALL_MOD_PATH}$moddir/$KERNELRELEASE" "$scratch$moddir/$alias"
++"$DEPMOD" -ae -F "${objtree}/System.map" -b "$scratch" -m "$moddir" "$alias"

@@ -1,0 +1,59 @@
+--- a/Makefile
++++ b/Makefile
+@@ -1,9 +1,20 @@
+ # SPDX-License-Identifier: GPL-2.0
+-VERSION = 7
++VERSION = linux-evl-7
+ PATCHLEVEL = 1
+-SUBLEVEL = 8
++SUBLEVEL =
+ EXTRAVERSION =
+-NAME = Baby Opossum Posse
++NAME = linux-evl
++
++# Zainium: release is exactly linux-evl-7.1, no "+" from setlocalversion
++LOCALVERSION ?=
++export LOCALVERSION
++
++# numeric parts for LINUX_VERSION_CODE: upstream 7.1.8
++VERSION_NUM := $(shell echo $(VERSION) | grep -o '[0-9]*$$')
++ifeq ($(VERSION_NUM),)
++VERSION_NUM := 7
++endif
++CODE_SUBLEVEL := 8
+ 
+ # *DOCUMENTATION*
+ # To see a list of typical targets execute "make help"
+@@ -1309,7 +1320,7 @@
+ # makefile but the argument can be passed to make if needed.
+ #
+ 
+-MODLIB	= $(INSTALL_MOD_PATH)/lib/modules/$(KERNELRELEASE)
++MODLIB	= $(INSTALL_MOD_PATH)/overlayer/syshub/drivers/modules/$(KERNELRELEASE)
+ export MODLIB
+ 
+ PHONY += prepare0
+@@ -1444,18 +1455,18 @@
+ endef
+ 
+ define filechk_version.h
+-	if [ $(SUBLEVEL) -gt 255 ]; then                                 \
++	if [ $(or $(SUBLEVEL),$(CODE_SUBLEVEL)) -gt 255 ]; then                                 \
+ 		echo \#define LINUX_VERSION_CODE $(shell                 \
+-		expr $(VERSION) \* 65536 + $(PATCHLEVEL) \* 256 + 255); \
++		expr $(VERSION_NUM) \* 65536 + $(PATCHLEVEL) \* 256 + 255); \
+ 	else                                                             \
+ 		echo \#define LINUX_VERSION_CODE $(shell                 \
+-		expr $(VERSION) \* 65536 + $(PATCHLEVEL) \* 256 + $(SUBLEVEL)); \
++		expr $(VERSION_NUM) \* 65536 + $(PATCHLEVEL) \* 256 + $(or $(SUBLEVEL),$(CODE_SUBLEVEL))); \
+ 	fi;                                                              \
+ 	echo '#define KERNEL_VERSION(a,b,c) (((a) << 16) + ((b) << 8) +  \
+ 	((c) > 255 ? 255 : (c)))';                                       \
+-	echo \#define LINUX_VERSION_MAJOR $(VERSION);                    \
++	echo \#define LINUX_VERSION_MAJOR $(VERSION_NUM);                    \
+ 	echo \#define LINUX_VERSION_PATCHLEVEL $(PATCHLEVEL);            \
+-	echo \#define LINUX_VERSION_SUBLEVEL $(SUBLEVEL)
++	echo \#define LINUX_VERSION_SUBLEVEL $(or $(SUBLEVEL),$(CODE_SUBLEVEL))
+ endef
+ 
+ $(version_h): private PATCHLEVEL := $(or $(PATCHLEVEL), 0)
