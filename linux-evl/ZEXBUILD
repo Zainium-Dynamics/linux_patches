@@ -2,24 +2,21 @@ maintainer="Zainium Dynamics <alizain@zainiumdynamics.tech>"
 pkgname=linux-evl
 pkgver=7.1.8
 pkgrel=0
-_tag=cachyos-7.1.8-1
 _krel=linux-evl-7.1
 makedepends="bash clang-dev flex bison bc perl python3 gawk findutils diffutils coreutils tar xz zstd cpio kmod elfutils-dev openssl openssl-dev pahole linux-headers qemu-system-x86_64"
-source="https://github.com/CachyOS/linux/archive/refs/tags/$_tag.tar.gz
-0001-bore-cachy.patch
-0002-zainium-system-paths.patch
-0003-zainium-kernel-release.patch
+source="https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$pkgver.tar.xz
+0001-zainium-system-paths.patch
+0002-zainium-kernel-release.patch
 zainium.config"
-sha256sums="e181cae2157d3cf7bb3417422e7c7d9f561284c131c8bcc51a70cf6325b89be8  $_tag.tar.gz"
+sha256sums="ff01dcb449279d5b4cfccdb01fee639cf5ff1803f1749a77844dd33915422c49  linux-$pkgver.tar.xz"
 
-# CachyOS's 7.1 tree (its base patches already applied), BORE scheduler on top,
-# then Zainium's system paths (firmware, shebangs, init, modprobe, poweroff) and
-# release name. The release stays linux-evl-7.1 so the module dir and boot paths
+# Vanilla 7.1 with Zainium's system paths (firmware, shebangs, init, modprobe,
+# poweroff) and release name. The release stays linux-evl-7.1 so the module dir and boot paths
 # do not change. zainium.config is Zainium's own kernel config; build() only adds
 # the desktop-speed options to it. Built with GCC like that config: with Rust and
 # BTF both on, the kernel does not allow LTO.
 build() {
-	cd "$SRCDIR/linux-$_tag"
+	cd "$SRCDIR/linux-$pkgver"
 	# the musl loader flags ci/build.sh exports are for userland, not the kernel; with the Rust
 	# one bindgen would run on Zainium's loader and could not find libstdc++ for Alpine's libclang;
 	# it also has to be linked dynamically, a static musl bindgen cannot dlopen libclang
@@ -31,23 +28,23 @@ build() {
 	RUSTFLAGS="-C target-feature=-crt-static" cargo install --locked --root "$SRCDIR/bindgen" bindgen-cli
 	export PATH="$SRCDIR/bindgen/bin:$PATH"
 
-	for p in 0001-bore-cachy.patch 0002-zainium-system-paths.patch 0003-zainium-kernel-release.patch; do
+	for p in 0001-zainium-system-paths.patch 0002-zainium-kernel-release.patch; do
 		patch -p1 < "$SRCDIR/$p"
 	done
 
 	cp "$SRCDIR/zainium.config" .config
-	# desktop speed on top of Zainium's config: CachyOS tweaks and BORE keep their
-	# defaults; x86-64-v3, -O3, transparent hugepages, zstd for zram, no scheduler stats
+	# desktop speed on top of Zainium's config: x86-64-v3, -O3, transparent hugepages, zstd for zram, no scheduler stats
 	scripts/config -e GENERIC_CPU --set-val X86_64_VERSION 3 \
 		-d CC_OPTIMIZE_FOR_PERFORMANCE -e CC_OPTIMIZE_FOR_PERFORMANCE_O3 \
 		-e TRANSPARENT_HUGEPAGE -e TRANSPARENT_HUGEPAGE_ALWAYS \
 		-d ZRAM_DEF_COMP_LZORLE -e ZRAM_DEF_COMP_ZSTD \
 		-d SCHEDSTATS -d LATENCYTOP \
-		-d DEBUG_INFO_COMPRESSED_NONE -e DEBUG_INFO_COMPRESSED_ZSTD
+		-d DEBUG_INFO_COMPRESSED_NONE -e DEBUG_INFO_COMPRESSED_ZSTD \
+		-e DEBUG_INFO_REDUCED
 	make olddefconfig
 	make rustavailable
 	# olddefconfig silently drops what the toolchain cannot do (Rust without rustc/bindgen)
-	for opt in CONFIG_RUST=y CONFIG_DEBUG_INFO_BTF=y CONFIG_CACHY=y CONFIG_SCHED_BORE=y \
+	for opt in CONFIG_RUST=y CONFIG_DEBUG_INFO_BTF=y \
 		CONFIG_X86_64_VERSION=3 CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3=y CONFIG_TRANSPARENT_HUGEPAGE=y; do
 		grep -qx "$opt" .config || { echo "olddefconfig dropped $opt" >&2; return 1; }
 	done
@@ -102,7 +99,7 @@ EOF
 }
 
 package() {
-	cd "$SRCDIR/linux-$_tag"
+	cd "$SRCDIR/linux-$pkgver"
 	mkdir -p "$PAYLOAD_DIR/kernel"
 	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-evl"
 	# the boot menu's fallback entry boots the same image
