@@ -1,7 +1,7 @@
 maintainer="Zainium Dynamics <alizain@zainiumdynamics.tech>"
 pkgname=linux-evl
 pkgver=7.1.8
-pkgrel=0
+pkgrel=1
 _krel=linux-evl-7.1
 # the kernel goes to the kernel tier (ESP, `zex kernel`); its modules to the base
 subpackages="linux-evl-modules"
