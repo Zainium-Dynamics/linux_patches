@@ -41,7 +41,10 @@ build() {
 		-e TRANSPARENT_HUGEPAGE -e TRANSPARENT_HUGEPAGE_ALWAYS \
 		-d ZRAM_DEF_COMP_LZORLE -e ZRAM_DEF_COMP_ZSTD \
 		-d SCHEDSTATS -d LATENCYTOP \
-		-d DEBUG_INFO_COMPRESSED_NONE -e DEBUG_INFO_COMPRESSED_ZSTD
+		-d DEBUG_INFO_COMPRESSED_NONE -e DEBUG_INFO_COMPRESSED_ZSTD \
+		-d X86_DECODER_SELFTEST
+	# X86_DECODER_SELFTEST builds arch/x86/tools/insn_sanity with the host compiler, which
+	# cannot take the kernel's uapi headers on the musl build host; it is a build-time test only
 	make olddefconfig
 	make rustavailable
 	# olddefconfig silently drops what the toolchain cannot do (Rust without rustc/bindgen)
@@ -100,11 +103,13 @@ EOF
 	grep "ZAINIUM_BOOT_OK" "$t/boot.log"
 }
 
-# the kernel image only: `zex kernel` puts it on the ESP, where Limine boots it
+# the kernel image only: `zex kernel` puts it on the ESP, where Limine boots it.
+# linux-panic is the fallback entry's kernel (the boot menu's "Fallback Kernel"), as in zaisys
 package() {
 	cd "$SRCDIR/linux-$pkgver"
 	mkdir -p "$PAYLOAD_DIR/kernel"
 	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-evl"
+	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-panic"
 }
 
 # the modules for the base (drivers/modules/<release>), staged by `zex kernel` after asking

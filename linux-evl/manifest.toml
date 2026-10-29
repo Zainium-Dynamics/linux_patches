@@ -16,7 +16,7 @@ ed25519_sig      = ""
 ed25519_pubkey   = ""
 
 depends          = []
-provides         = ["linux-evl"]
+provides         = ["linux-evl", "linux-panic"]
 tags             = ["base", "kernel"]
 modules          = "linux-evl-modules"
 
