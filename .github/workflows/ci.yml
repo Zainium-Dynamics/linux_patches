@@ -138,8 +138,8 @@ jobs:
 
   # The release job builds every changed package, packs each into a .zex
   # and attaches them to a GitHub Release. Once the R2 secrets are set on
-  # this repo it also publishes them with zex-ports: linux-zainium to the
-  # kernel tier (kernel/x86_64, read by `zex kernel`), linux-zainium-modules
+  # this repo it also publishes them with zex-ports: linux-kernel to the
+  # kernel tier (kernel/x86_64, read by `zex kernel`), linux-kernel-modules
   # to syshub.
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
