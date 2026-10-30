@@ -1,9 +1,9 @@
-# manifest.toml — linux-evl-modules (syshub tier): the modules of the linux-evl kernel
+# manifest.toml — linux-zainium-modules (syshub tier): the modules of the linux-zainium kernel
 # with the same version, loaded from drivers/modules/<release>.
 
 [package]
-name             = "linux-evl-modules"
-version          = "7.1.8"
+name             = "linux-zainium-modules"
+version          = "7.3.1"
 description      = "Linux kernel modules"
 license          = "GPL-2.0-only"
 maintainer       = "Zainium Dynamics <alizain@zainiumdynamics.tech>"
@@ -16,7 +16,7 @@ ed25519_sig      = ""
 ed25519_pubkey   = ""
 
 depends          = []
-provides         = ["linux-evl-modules"]
+provides         = ["linux-zainium-modules"]
 tags             = ["base", "kernel", "modules"]
 
 [install]

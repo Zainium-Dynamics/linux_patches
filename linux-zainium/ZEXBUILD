@@ -1,10 +1,10 @@
 maintainer="Zainium Dynamics <alizain@zainiumdynamics.tech>"
-pkgname=linux-evl
-pkgver=7.1.8
-pkgrel=2
-_krel=linux-evl-7.1
+pkgname=linux-zainium
+pkgver=7.3.1
+pkgrel=0
+_krel=linux-zainium-7.3
 # the kernel goes to the kernel tier (ESP, `zex kernel`); its modules to the base
-subpackages="linux-evl-modules"
+subpackages="linux-zainium-modules"
 # GNU sed: AppArmor's capability names are generated with sed's \L, which BusyBox sed
 # writes as a literal "L" ("LCHOWN"), so the parser could not match any capability
 makedepends="bash clang-dev flex bison bc perl python3 gawk sed findutils diffutils coreutils tar xz zstd cpio kmod elfutils-dev openssl openssl-dev pahole linux-headers qemu-system-x86_64"
@@ -12,10 +12,9 @@ source="https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$pkgver.tar.xz
 0001-zainium-system-paths.patch
 0002-zainium-kernel-release.patch
 zainium.config"
-sha256sums="ff01dcb449279d5b4cfccdb01fee639cf5ff1803f1749a77844dd33915422c49  linux-$pkgver.tar.xz"
 
-# Vanilla 7.1 with Zainium's system paths (firmware, shebangs, init, modprobe,
-# poweroff) and release name. The release stays linux-evl-7.1 so the module dir and boot paths
+# Vanilla 7.3 with Zainium's system paths (firmware, shebangs, init, modprobe,
+# poweroff) and release name. The release stays linux-zainium-7.3 so the module dir and boot paths
 # do not change. zainium.config is Zainium's own kernel config; build() only adds
 # the desktop-speed options to it. Built with GCC like that config: with Rust and
 # BTF both on, the kernel does not allow LTO.
@@ -110,7 +109,7 @@ EOF
 package() {
 	cd "$SRCDIR/linux-$pkgver"
 	mkdir -p "$PAYLOAD_DIR/kernel"
-	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-evl"
+	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-zainium"
 	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-panic"
 }
 

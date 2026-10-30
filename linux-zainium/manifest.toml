@@ -1,9 +1,9 @@
-# manifest.toml — linux-evl (kernel tier): the kernel image, booted from the ESP.
-# Its modules are the syshub package linux-evl-modules.
+# manifest.toml — linux-zainium (kernel tier): the kernel image, booted from the ESP.
+# Its modules are the syshub package linux-zainium-modules.
 
 [package]
-name             = "linux-evl"
-version          = "7.1.8"
+name             = "linux-zainium"
+version          = "7.3.1"
 description      = "Linux kernel"
 license          = "GPL-2.0-only"
 maintainer       = "Zainium Dynamics <alizain@zainiumdynamics.tech>"
@@ -16,9 +16,9 @@ ed25519_sig      = ""
 ed25519_pubkey   = ""
 
 depends          = []
-provides         = ["linux-evl", "linux-panic"]
+provides         = ["linux-zainium", "linux-panic"]
 tags             = ["base", "kernel"]
-modules          = "linux-evl-modules"
+modules          = "linux-zainium-modules"
 
 [install]
 kernel  = "/overlayer/zaisys/kernel"
