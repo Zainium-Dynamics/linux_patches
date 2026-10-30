@@ -1,4 +1,4 @@
-# linux_patches — GitHub Actions CI/CD
+# kernel-recipes — GitHub Actions CI/CD
 #
 # Same pipeline as cosmic-zainium: only builds recipe directories that
 # changed (ci/changed-packages.sh), inside an Alpine container, with
