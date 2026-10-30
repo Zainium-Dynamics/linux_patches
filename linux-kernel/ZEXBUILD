@@ -10,7 +10,7 @@ _krel="$_kernel-${pkgver%.*}"
 subpackages="linux-kernel-modules linux-headers"
 # GNU sed: AppArmor's capability names are generated with sed's \L, which BusyBox sed
 # writes as a literal "L" ("LCHOWN"), so the parser could not match any capability
-makedepends="bash clang-dev flex bison bc perl python3 gawk sed findutils diffutils coreutils tar xz zstd cpio kmod elfutils-dev openssl openssl-dev pahole linux-headers qemu-system-x86_64"
+makedepends="bash clang-dev flex bison bc perl python3 gawk sed rsync findutils diffutils coreutils tar xz zstd cpio kmod elfutils-dev openssl openssl-dev pahole linux-headers qemu-system-x86_64"
 source="https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$pkgver.tar.xz
 0001-zainium-system-paths.patch
 0002-zainium-module-dir.patch
