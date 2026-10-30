@@ -2,7 +2,7 @@
 
 Zainium's kernel, built from the vanilla 7.3 tree.
 
-`linux-kernel/` is the recipe. It builds two packages: `linux-kernel` (the kernel tier: the image `linux-zainium` and its fallback copy `linux-panic`) and `linux-kernel-modules` (the base). The kernel's name is set once, as `_kernel` in the recipe; the release is that name plus the major and minor version (`linux-zainium-7.3`), given to `make` as `KERNELRELEASE`.
+`linux-kernel/` is the recipe. It builds three packages from one tree: `linux-kernel` (the kernel tier: the image `linux-zainium` and its fallback copy `linux-panic`), `linux-kernel-modules` (the base) and `linux-headers` (the userland's include). The kernel's name is set once, as `_kernel` in the recipe; the release is that name plus the major and minor version (`linux-zainium-7.3`), given to `make` as `KERNELRELEASE`.
 
 - source: `linux-7.3.1.tar.xz` from kernel.org
 - `0001-zainium-system-paths.patch`: firmware, shebang interpreters, init, modprobe, poweroff/reboot and depmod under `/overlayer/syshub`, initramfs init `/quantra-ramfs`

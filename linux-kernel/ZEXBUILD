@@ -7,7 +7,7 @@ pkgrel=0
 _kernel=linux-zainium
 _krel="$_kernel-${pkgver%.*}"
 # the kernel goes to the kernel tier (ESP, `zex kernel`); its modules to the base
-subpackages="linux-kernel-modules"
+subpackages="linux-kernel-modules linux-headers"
 # GNU sed: AppArmor's capability names are generated with sed's \L, which BusyBox sed
 # writes as a literal "L" ("LCHOWN"), so the parser could not match any capability
 makedepends="bash clang-dev flex bison bc perl python3 gawk sed findutils diffutils coreutils tar xz zstd cpio kmod elfutils-dev openssl openssl-dev pahole linux-headers qemu-system-x86_64"
@@ -135,4 +135,12 @@ modules() {
 	depmod -a -b "$scratch" -F System.map "0.0-$_krel"
 	rm -rf "$scratch"
 	[ -s "$mods/modules.dep" ] || { echo "depmod wrote no modules.dep" >&2; return 1; }
+}
+
+# the kernel's userspace API headers, from the same tree, for the userland
+# (/overlayer/zexlib/union/include)
+linux_headers() {
+	cd "$SRCDIR/linux-$pkgver"
+	kmake INSTALL_HDR_PATH="$PAYLOAD_DIR" headers_install
+	find "$PAYLOAD_DIR" \( -name .install -o -name ..install.cmd \) -exec rm -f {} +
 }

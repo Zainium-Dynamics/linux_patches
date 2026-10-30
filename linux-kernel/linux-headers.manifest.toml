@@ -1,0 +1,31 @@
+# manifest.toml — linux-headers (userland tier): the kernel's userspace API headers, built
+# with every linux-kernel from the same tree, installed to the userland's include.
+
+[package]
+name             = "linux-headers"
+version          = "7.3.1"
+description      = "Linux kernel headers (userspace API)"
+license          = "GPL-2.0-only WITH Linux-syscall-note"
+maintainer       = "Zainium Dynamics <alizain@zainiumdynamics.tech>"
+homepage         = "https://zainiumdynamics.tech"
+build_type       = ""
+libc_target      = ""
+
+blake3           = ""
+ed25519_sig      = ""
+ed25519_pubkey   = ""
+
+depends          = []
+provides         = ["linux-headers"]
+tags             = ["kernel", "headers", "development"]
+
+[install]
+include = "/overlayer/zexlib/union/include"
+_syshub = false
+
+[remove]
+files    = []
+dirs     = []
+symlinks = []
+
+[hooks]
