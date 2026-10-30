@@ -372,7 +372,8 @@ tail -10 "$pack_log"
 
 # ── subpackages, if any ────────────────────────────────────────────────
 for sub in ${subpackages:-}; do
-    subfn="${sub#"$pkgname"-}"   # "$pkgname-dev" -> "dev"
+    # "$pkgname-dev" -> dev(); any other name with its "-" as "_" (linux-headers -> linux_headers())
+    subfn="$(printf '%s' "${sub#"$pkgname"-}" | tr - _)"
     SUBPKG_PAYLOAD_DIR="$STAGING_ROOT/subpkg/$sub/payload"
     mkdir -p "$SUBPKG_PAYLOAD_DIR"
     # Subpackage functions (dev(), etc.) stage into $PAYLOAD_DIR same as

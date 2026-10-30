@@ -1,24 +1,31 @@
 maintainer="Zainium Dynamics <alizain@zainiumdynamics.tech>"
-pkgname=linux-evl
-pkgver=7.1.8
-pkgrel=2
-_krel=linux-evl-7.1
+pkgname=linux-kernel
+pkgver=7.3.1
+pkgrel=0
+# the one place the kernel's name is set: the image is kernel/$_kernel and the release
+# $_kernel-<major>.<minor>, so the module dir and boot paths stay the same across point releases
+_kernel=linux-zainium
+_krel="$_kernel-${pkgver%.*}"
 # the kernel goes to the kernel tier (ESP, `zex kernel`); its modules to the base
-subpackages="linux-evl-modules"
+subpackages="linux-kernel-modules linux-headers"
 # GNU sed: AppArmor's capability names are generated with sed's \L, which BusyBox sed
 # writes as a literal "L" ("LCHOWN"), so the parser could not match any capability
 makedepends="bash clang-dev flex bison bc perl python3 gawk sed findutils diffutils coreutils tar xz zstd cpio kmod elfutils-dev openssl openssl-dev pahole linux-headers qemu-system-x86_64"
 source="https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$pkgver.tar.xz
 0001-zainium-system-paths.patch
-0002-zainium-kernel-release.patch
+0002-zainium-module-dir.patch
 zainium.config"
-sha256sums="ff01dcb449279d5b4cfccdb01fee639cf5ff1803f1749a77844dd33915422c49  linux-$pkgver.tar.xz"
 
-# Vanilla 7.1 with Zainium's system paths (firmware, shebangs, init, modprobe,
-# poweroff) and release name. The release stays linux-evl-7.1 so the module dir and boot paths
-# do not change. zainium.config is Zainium's own kernel config; build() only adds
-# the desktop-speed options to it. Built with GCC like that config: with Rust and
-# BTF both on, the kernel does not allow LTO.
+# Vanilla Linux with Zainium's system paths (firmware, shebangs, init, modprobe, poweroff)
+# and the modules under /overlayer/syshub; the release name is given to make (kmake).
+# zainium.config is Zainium's own kernel config; build() only adds the desktop-speed
+# options to it. Built with GCC like that config: with Rust and BTF both on, the kernel
+# does not allow LTO.
+# KERNELRELEASE on make's command line is the release as it is (no setlocalversion, no "+")
+kmake() {
+	make KERNELRELEASE="$_krel" "$@"
+}
+
 build() {
 	cd "$SRCDIR/linux-$pkgver"
 	# the musl loader flags ci/build.sh exports are for userland, not the kernel; with the Rust
@@ -32,7 +39,7 @@ build() {
 	RUSTFLAGS="-C target-feature=-crt-static" cargo install --locked --root "$SRCDIR/bindgen" bindgen-cli
 	export PATH="$SRCDIR/bindgen/bin:$PATH"
 
-	for p in 0001-zainium-system-paths.patch 0002-zainium-kernel-release.patch; do
+	for p in 0001-zainium-system-paths.patch 0002-zainium-module-dir.patch; do
 		patch -p1 < "$SRCDIR/$p"
 	done
 
@@ -47,8 +54,8 @@ build() {
 		-d X86_DECODER_SELFTEST
 	# X86_DECODER_SELFTEST builds arch/x86/tools/insn_sanity with the host compiler, which
 	# cannot take the kernel's uapi headers on the musl build host; it is a build-time test only
-	make olddefconfig
-	make rustavailable
+	kmake olddefconfig
+	kmake rustavailable
 	# olddefconfig silently drops what the toolchain cannot do (Rust without rustc/bindgen)
 	for opt in CONFIG_RUST=y CONFIG_DEBUG_INFO_BTF=y \
 		CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y CONFIG_TRANSPARENT_HUGEPAGE=y; do
@@ -59,10 +66,10 @@ build() {
 	for opt in $(grep '^CONFIG_EROFS_FS[A-Z_]*=y$' "$SRCDIR/zainium.config" | grep -v '^CONFIG_EROFS_FS_ONDEMAND='); do
 		grep -qx "$opt" .config || { echo "olddefconfig dropped $opt" >&2; return 1; }
 	done
-	[ "$(make -s kernelrelease)" = "$_krel" ] || { echo "kernelrelease is not $_krel" >&2; return 1; }
+	[ "$(kmake -s kernelrelease)" = "$_krel" ] || { echo "kernelrelease is not $_krel" >&2; return 1; }
 
 	# x86-64-v3 (AVX2, Haswell and newer) and -O3 for the C and the Rust code
-	make -j"$(nproc)" KCFLAGS="-march=x86-64-v3 -O3" KRUSTFLAGS="-Ctarget-cpu=x86-64-v3" bzImage modules
+	kmake -j"$(nproc)" KCFLAGS="-march=x86-64-v3 -O3" KRUSTFLAGS="-Ctarget-cpu=x86-64-v3" bzImage modules
 	_boot_test
 }
 
@@ -110,14 +117,14 @@ EOF
 package() {
 	cd "$SRCDIR/linux-$pkgver"
 	mkdir -p "$PAYLOAD_DIR/kernel"
-	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-evl"
+	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/$_kernel"
 	cp arch/x86/boot/bzImage "$PAYLOAD_DIR/kernel/linux-panic"
 }
 
 # the modules for the base (drivers/modules/<release>), staged by `zex kernel` after asking
 modules() {
 	cd "$SRCDIR/linux-$pkgver"
-	make INSTALL_MOD_PATH="$PAYLOAD_DIR" INSTALL_MOD_STRIP=1 DEPMOD=true modules_install
+	kmake INSTALL_MOD_PATH="$PAYLOAD_DIR" INSTALL_MOD_STRIP=1 DEPMOD=true modules_install
 	mods="$PAYLOAD_DIR/overlayer/syshub/drivers/modules/$_krel"
 	rm -f "$mods/build" "$mods/source"
 
@@ -128,4 +135,12 @@ modules() {
 	depmod -a -b "$scratch" -F System.map "0.0-$_krel"
 	rm -rf "$scratch"
 	[ -s "$mods/modules.dep" ] || { echo "depmod wrote no modules.dep" >&2; return 1; }
+}
+
+# the kernel's userspace API headers, from the same tree, for the userland
+# (/overlayer/zexlib/union/include)
+linux_headers() {
+	cd "$SRCDIR/linux-$pkgver"
+	kmake INSTALL_HDR_PATH="$PAYLOAD_DIR" headers_install
+	find "$PAYLOAD_DIR" \( -name .install -o -name ..install.cmd \) -exec rm -f {} +
 }

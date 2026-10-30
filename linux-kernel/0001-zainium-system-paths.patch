@@ -170,7 +170,7 @@ index 3c34fecac..d2fa0ac4e 100755
 -fi
 -exec "$DEPMOD" "$@" "$KERNELRELEASE"
 +# Zainium: modules live under /overlayer/syshub/drivers/modules (MODLIB), and
-+# depmod rejects a non-numeric release like linux-evl-7.1 on its command
++# depmod rejects a non-numeric release like linux-zainium-7.3 on its command
 +# line, so run it on a numeric alias of the module dir in a scratch root.
 +moddir=/overlayer/syshub/drivers/modules
 +alias="0.0-${KERNELRELEASE}"
