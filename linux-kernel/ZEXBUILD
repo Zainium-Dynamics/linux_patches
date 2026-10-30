@@ -143,4 +143,6 @@ linux_headers() {
 	cd "$SRCDIR/linux-$pkgver"
 	kmake INSTALL_HDR_PATH="$PAYLOAD_DIR" headers_install
 	find "$PAYLOAD_DIR" \( -name .install -o -name ..install.cmd \) -exec rm -f {} +
+	# substrate allows no /usr in a package; in the headers it is only comments
+	grep -rlI '/usr/' "$PAYLOAD_DIR" | xargs -r sed -i 's#/usr/#/overlayer/syshub/#g'
 }
