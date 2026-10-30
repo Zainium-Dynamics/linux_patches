@@ -15,6 +15,8 @@ on:
     branches: [master]
   push:
     branches: [master]
+  # kernel-bump.yml starts this after it bumps the recipe on master
+  workflow_dispatch:
 
 jobs:
   # PR validation: a stale run is worthless once new commits land on the
@@ -142,7 +144,7 @@ jobs:
   # kernel tier (kernel/x86_64, read by `zex kernel`), linux-evl-modules
   # to syshub.
   release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     # Google mirror of the Docker Hub image: anonymous pulls from shared runners hit the Docker Hub and ECR limits
     container: mirror.gcr.io/library/alpine:latest
