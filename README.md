@@ -1,26 +1,49 @@
-# linux_patches
+Zainium OS kernel
+=================
 
-Zainium's kernel, built from the vanilla 7.3 tree.
+This repository builds the Linux kernel of Zainium OS from the vanilla
+sources on kernel.org, with Zainium's paths and configuration. The recipe
+in linux-kernel/ makes three packages from one tree:
 
-`linux-kernel/` is the recipe. It builds three packages from one tree: `linux-kernel` (the kernel tier: the image `linux-zainium` and its fallback copy `linux-panic`), `linux-kernel-modules` (the base) and `linux-headers` (the userland's include). The kernel's name is set once, as `_kernel` in the recipe; the release is that name plus the major and minor version (`linux-zainium-7.3`), given to `make` as `KERNELRELEASE`.
+    linux-kernel           the kernel (linux-zainium) and its fallback copy
+                           (linux-panic), installed on the EFI partition
+    linux-kernel-modules   the modules, in /overlayer/syshub/drivers/modules
+    linux-headers          the userspace API headers, for the userland
 
-- source: `linux-7.3.1.tar.xz` from kernel.org
-- `0001-zainium-system-paths.patch`: firmware, shebang interpreters, init, modprobe, poweroff/reboot and depmod under `/overlayer/syshub`, initramfs init `/quantra-ramfs`
-- `0002-zainium-module-dir.patch`: modules installed to `/overlayer/syshub/drivers/modules`
-- `zainium.config`: Zainium's own kernel config (Rust, BTF); the recipe adds x86-64-v3 (needs an AVX2 CPU), `-O3`, transparent hugepages and zstd for zram, and turns off scheduler stats. Built with GCC: with Rust and BTF on, the kernel does not allow LTO.
+The kernel's name is set once, as _kernel in the recipe. Its release is
+that name and the series, for example linux-zainium-7.3, so the module
+directory stays the same across point releases.
 
-The kernel goes to `/overlayer/zaisys/kernel/` and, through `zex kernel`, to the ESP; the modules go to `/overlayer/syshub/drivers/modules/<release>/`.
+What the recipe changes
+-----------------------
 
-CI builds the recipe on every pull request and boots the kernel in QEMU (`-cpu max`) with a test init at `/quantra-ramfs`; a push to `master` attaches the built package to a GitHub Release.
+    0001-zainium-system-paths.patch   firmware, script interpreters, init,
+                                      modprobe, reboot and depmod under
+                                      /overlayer/syshub
+    0002-zainium-module-dir.patch     modules in /overlayer/syshub/drivers/modules
+    zainium.config                    Zainium's kernel configuration (Rust, BTF)
 
-## Kept current every week
+The build adds x86-64-v3 (an AVX2 CPU is needed), -O3, transparent
+hugepages and zstd for zram.
 
-Every Thursday at 10:00 Pakistan time, `kernel-bump.yml` looks at kernel.org (`ci/kernel-bump.sh`):
+Building and testing
+--------------------
 
-- a newer release of the same series is taken as soon as it is out; a new series (7.4 after 7.3) from its first point release (7.4.1);
-- every patch of the recipe must still apply to the new tree, or nothing changes and the job fails so the patch can be updated by hand;
-- the recipe and its manifests get the new version, the commit `linux-kernel: bump to <version>` goes to `master`, and CI builds, boot-tests and publishes it.
+CI builds every pull request and boots the kernel in QEMU with a test
+init. A push to master is built, tested and published; installed systems
+get it with "elevate zex kernel --u".
 
-It can also be started by hand from the Actions tab.
+Staying current
+---------------
 
-Patches are GPL-2.0, as is the kernel they apply to.
+Every Thursday at 10:00 Pakistan time, kernel-bump.yml checks kernel.org.
+A newer release of the same series is taken at once, a new series from
+its first point release. If every patch still applies, the recipe is
+bumped on master ("linux-kernel: bump to <version>") and CI builds it. If
+a patch no longer applies, the job fails and the patch is updated by hand.
+It can also be started from the Actions tab.
+
+License
+-------
+
+The patches are GPL-2.0, like the kernel.
